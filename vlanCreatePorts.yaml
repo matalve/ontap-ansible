@@ -1,0 +1,72 @@
+---
+# Creating VLAN ports on all available nodes in the cluster
+# Use with the "--limit" parameter to specify scope of clusters, assuming there's an Ansible hosts file available.
+# For example: ansible-playbook vlanCreatePorts.yaml --limit clustername1,clustername2
+- hosts: all
+  collections:
+    - netapp.ontap
+  name: Create VLAN ports
+  gather_facts: false
+  
+  vars_prompt:
+    - name: clusteruser
+      prompt: "Enter username"
+      private: no
+    - name: clusterpass
+      prompt: "Enter password"
+
+    - name: vlan_input
+      prompt: "Enter VLAN ID (comma separated if more than one)"
+      private: no
+
+    - name: port_input
+      prompt: "Enter port to create VLAN on"
+      private: no
+      default: "a0a"
+
+  module_defaults:
+    group/netapp.ontap.netapp_ontap:
+      username: "{{ clusteruser }}"
+      password: "{{ clusterpass }}"
+      hostname: "{{ inventory_hostname }}"
+      https: true
+
+  tasks:
+  - name: Converting VLAN csv to list
+    set_fact:
+      vlan_list: "{{ vlan_input.split(',') }}"  # Converting csv to list
+
+  - name: Get NetApp cluster info
+    netapp.ontap.na_ontap_rest_info:
+      gather_subset: "cluster_node_info"
+    register: ontap_info
+    connection: local
+
+  - name: Extracting node names
+    set_fact:
+      ontap_nodes: "{{ ontap_info.ontap_info['cluster/nodes'].records | json_query(query) }}"
+    vars:
+      query: "[*].name"
+
+  - name: Creating broadcast domain
+    netapp.ontap.na_ontap_broadcast_domain:
+      state: present
+      name: "vlan{{ item }}"
+      ipspace: Default
+      mtu: 9000
+    loop: "{{ vlan_list }}"
+    connection: local
+
+  - name: Creating VLAN ports
+    netapp.ontap.na_ontap_net_vlan:
+      state: present
+      enabled: true
+      vlanid: "{{ item[0] }}"
+      parent_interface: "{{ port_input }}"
+      broadcast_domain: "vlan{{ item[0] }}"
+      ipspace: Default
+      node: "{{ item[1] }}"
+    with_nested:
+      - "{{ vlan_list }}"
+      - "{{ ontap_nodes }}"
+    connection: local
