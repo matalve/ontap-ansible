@@ -1,0 +1,42 @@
+---
+# Simple playbook for printing node names of clusters - used for explaning the concepts of ONTAP with Ansible.
+# Use with the "--limit" parameter to specify scope of clusters, assuming there's an Ansible hosts file available.
+# For example: ansible-playbook getNodes.yaml --limit clustername1,clustername2
+- hosts: all
+  collections:
+    - netapp.ontap
+  name: Get nodes
+  gather_facts: false
+
+  vars_prompt:
+    - name: clusteruser
+      prompt: "Enter username"
+      private: no
+    - name: clusterpass
+      prompt: "Enter password"
+
+  module_defaults:
+    group/netapp.ontap.netapp_ontap:
+      username: "{{ clusteruser }}"
+      password: "{{ clusterpass }}"
+      hostname: "{{ inventory_hostname }}"
+      https: true
+
+  tasks:
+  # - debug:
+  #     msg: "{{ inventory_hostname }}"
+
+  - name: Get NetApp cluster info
+    netapp.ontap.na_ontap_rest_info:
+      gather_subset: "cluster_node_info"
+    register: ontap_info
+    connection: local   # Important since we are using the module to connect to the clusters
+
+  - name: Extracting node names
+    set_fact:
+      ontap_nodes: "{{ ontap_info.ontap_info['cluster/nodes'].records }}"
+
+  - debug:
+      msg: "{{ inventory_hostname }} {{ item.name }}"
+    loop:
+      "{{ ontap_nodes }}"
